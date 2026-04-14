@@ -1,44 +1,28 @@
-from rest_framework import viewsets, status, mixins
-from rest_framework.response import Response
+from django.db.models import F, Count
+from rest_framework import viewsets, mixins, status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
-from cinema.models import Actor, Genre, CinemaHall, Movie, MovieSession, Order
+from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order
 from cinema.serializers import (
-    ActorSerializer,
     GenreSerializer,
+    ActorSerializer,
     CinemaHallSerializer,
     MovieSerializer,
-    MovieDetailSerializer,
     MovieSessionSerializer,
+    MovieSessionListSerializer,
     MovieSessionDetailSerializer,
     OrderSerializer,
 )
-from cinema.permissions import IsAdminOrReadOnly
-
-
-class OrderPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = "page_size"
-    max_page_size = 100
+from cinema.permissions import IsAdminOrIfAuthenticatedReadOnly
 
 
 class BaseCinemaViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAdminOrReadOnly,)
-
-    def retrieve(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-    def update(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
+    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
 
     def destroy(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-
-class ActorViewSet(BaseCinemaViewSet):
-    queryset = Actor.objects.all()
-    serializer_class = ActorSerializer
+        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 class GenreViewSet(BaseCinemaViewSet):
@@ -46,31 +30,36 @@ class GenreViewSet(BaseCinemaViewSet):
     serializer_class = GenreSerializer
 
 
+class ActorViewSet(BaseCinemaViewSet):
+    queryset = Actor.objects.all()
+    serializer_class = ActorSerializer
+
+
 class CinemaHallViewSet(BaseCinemaViewSet):
     queryset = CinemaHall.objects.all()
     serializer_class = CinemaHallSerializer
 
 
-class MovieViewSet(
-    mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet
-):
-    queryset = Movie.objects.all()
-    permission_classes = (IsAdminOrReadOnly,)
+class MovieViewSet(BaseCinemaViewSet):
+    queryset = Movie.objects.all().prefetch_related("genres", "actors")
+    serializer_class = MovieSerializer
+
+
+class MovieSessionViewSet(BaseCinemaViewSet):
+    queryset = (
+        MovieSession.objects.all()
+        .select_related("movie", "cinema_hall")
+        .annotate(
+            tickets_available=(
+                F("cinema_hall__rows") * F("cinema_hall__seats_in_row")
+                - Count("tickets")
+            )
+        )
+    )
 
     def get_serializer_class(self):
-        if self.action == "retrieve":
-            return MovieDetailSerializer
-        return MovieSerializer
-
-
-class MovieSessionViewSet(viewsets.ModelViewSet):
-    queryset = MovieSession.objects.all()
-    permission_classes = (IsAdminOrReadOnly,)
-
-    def get_serializer_class(self):
+        if self.action == "list":
+            return MovieSessionListSerializer
         if self.action == "retrieve":
             return MovieSessionDetailSerializer
         return MovieSessionSerializer
@@ -79,24 +68,21 @@ class MovieSessionViewSet(viewsets.ModelViewSet):
 class OrderViewSet(
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
-    viewsets.GenericViewSet
+    GenericViewSet,
 ):
-    queryset = Order.objects.all()
+    queryset = Order.objects.prefetch_related(
+        "tickets__movie_session__movie", "tickets__movie_session__cinema_hall"
+    )
     serializer_class = OrderSerializer
-    pagination_class = OrderPagination
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
 
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-
-    def retrieve(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-    def update(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
-
-    def destroy(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_404_NOT_FOUND)
