@@ -1,7 +1,6 @@
 from django.db.models import F, Count
-from rest_framework import viewsets, mixins, status
+from rest_framework import viewsets, mixins
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from cinema.models import Genre, Actor, CinemaHall, Movie, MovieSession, Order
@@ -10,6 +9,8 @@ from cinema.serializers import (
     ActorSerializer,
     CinemaHallSerializer,
     MovieSerializer,
+    MovieListSerializer,
+    MovieDetailSerializer,
     MovieSessionSerializer,
     MovieSessionListSerializer,
     MovieSessionDetailSerializer,
@@ -18,34 +19,44 @@ from cinema.serializers import (
 from cinema.permissions import IsAdminOrIfAuthenticatedReadOnly
 
 
-class BaseCinemaViewSet(viewsets.ModelViewSet):
+class ListCreateViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, GenericViewSet):
     permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
 
-    def destroy(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
-
-class GenreViewSet(BaseCinemaViewSet):
+class GenreViewSet(ListCreateViewSet):
     queryset = Genre.objects.all()
     serializer_class = GenreSerializer
 
 
-class ActorViewSet(BaseCinemaViewSet):
+class ActorViewSet(ListCreateViewSet):
     queryset = Actor.objects.all()
     serializer_class = ActorSerializer
 
 
-class CinemaHallViewSet(BaseCinemaViewSet):
+class CinemaHallViewSet(ListCreateViewSet):
     queryset = CinemaHall.objects.all()
     serializer_class = CinemaHallSerializer
 
 
-class MovieViewSet(BaseCinemaViewSet):
+class MovieViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    GenericViewSet
+):
     queryset = Movie.objects.all().prefetch_related("genres", "actors")
     serializer_class = MovieSerializer
+    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return MovieListSerializer
+        if self.action == "retrieve":
+            return MovieDetailSerializer
+        return MovieSerializer
 
 
-class MovieSessionViewSet(BaseCinemaViewSet):
+class MovieSessionViewSet(viewsets.ModelViewSet):
     queryset = (
         MovieSession.objects.all()
         .select_related("movie", "cinema_hall")
@@ -56,6 +67,7 @@ class MovieSessionViewSet(BaseCinemaViewSet):
             )
         )
     )
+    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -74,15 +86,10 @@ class OrderViewSet(
         "tickets__movie_session__movie", "tickets__movie_session__cinema_hall"
     )
     serializer_class = OrderSerializer
-    permission_classes = (IsAdminOrIfAuthenticatedReadOnly,)
+    permission_classes = (IsAuthenticated,)
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
-
-    def get_permissions(self):
-        if self.action == "create":
-            return [IsAuthenticated()]
-        return super().get_permissions()
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
