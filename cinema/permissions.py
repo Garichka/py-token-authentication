@@ -1,28 +1,13 @@
-from rest_framework import permissions
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 
-class IsAdminOrIfAuthenticatedReadOnly(permissions.BasePermission):
+class IsAdminOrIfAuthenticatedReadOnly(BasePermission):
     def has_permission(self, request, view):
-        if request.method == "DELETE":
-            return False
-
         return bool(
             (
-                request.method in permissions.SAFE_METHODS
+                request.method in SAFE_METHODS
+                and request.user
                 and request.user.is_authenticated
             )
             or (request.user and request.user.is_staff)
         )
-
-    def has_object_permission(self, request, view, obj):
-        if request.method == "DELETE":
-            return False
-
-        return bool(
-            (
-                request.method in permissions.SAFE_METHODS
-                and request.user.is_authenticated
-            )
-            or (request.user and request.user.is_staff)
-        )
-
