@@ -1,6 +1,5 @@
 import datetime
 
-from django.utils import timezone
 from django.test import TestCase
 from django.urls import reverse
 
@@ -147,10 +146,10 @@ class AdminMovieSessionApiTests(TestCase):
             "movie": movie.id,
             "cinema_hall": cinema_hall.id,
             "show_time": datetime.datetime(
-                2022,
-                9,
-                2,
-                tzinfo=timezone.utc),
+                year=2023,
+                month=1,
+                day=23,
+            ),
         }
 
         url = detail_url(movie_session.id)
